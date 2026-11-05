@@ -13,15 +13,26 @@ public final class HikerSafetyState {
     private boolean lowBattery;
     private boolean emergencyPending;
     private boolean turnBackReceived;
+    private boolean testMode = true;
     private int batteryPercent = -1;
 
     public void setListener(Listener listener) { this.listener = listener; }
 
-    public void restoreFlags(boolean linkLost, boolean lowBattery, boolean emergencyPending, boolean turnBackReceived) {
+    public void restoreFlags(boolean linkLost, boolean lowBattery, boolean emergencyPending,
+                             boolean turnBackReceived, boolean testMode) {
         this.linkLost = linkLost;
         this.lowBattery = lowBattery;
         this.emergencyPending = emergencyPending;
         this.turnBackReceived = turnBackReceived;
+        this.testMode = testMode;
+    }
+
+    public void setTestMode(boolean enabled) {
+        if (testMode == enabled) return;
+        testMode = enabled;
+        emit(enabled ? "TEST_MODE_ON" : "TEST_MODE_OFF",
+                enabled ? "Test mode is ON · outgoing records marked TEST" : "Test mode is OFF · outgoing records may count as research data",
+                false);
     }
 
     public void onReplySlotClosed(boolean replyReceived) {
@@ -43,9 +54,10 @@ public final class HikerSafetyState {
     public void onBatteryPercent(int percent) {
         batteryPercent = percent >= 0 && percent <= 100 ? percent : -1;
         boolean isLow = batteryPercent >= 0 && batteryPercent < 20;
-        if (isLow && !lowBattery) emit("LOW_BATTERY", "Phone battery is below 20%", false);
+        boolean wasLow = lowBattery;
         lowBattery = isLow;
-        if (!isLow && batteryPercent >= 20) lowBattery = false;
+        if (isLow && !wasLow) emit("LOW_BATTERY", "Phone battery is below 20%", false);
+        else if (wasLow && !isLow && batteryPercent >= 20) emit("BATTERY_RECOVERED", "Phone battery is back to 20% or higher", false);
     }
 
     public void requestEmergency(String source) {
@@ -76,7 +88,7 @@ public final class HikerSafetyState {
     }
 
     public HikerFlags flags() {
-        return new HikerFlags(linkLost, lowBattery, emergencyPending, turnBackReceived, false);
+        return new HikerFlags(linkLost, lowBattery, emergencyPending, turnBackReceived, testMode);
     }
 
     public boolean isLinkLost() { return linkLost; }

@@ -1,0 +1,16 @@
+<resources>
+    <dimen name="tw_space_1">4dp</dimen>
+    <dimen name="tw_space_2">8dp</dimen>
+    <dimen name="tw_space_3">12dp</dimen>
+    <dimen name="tw_space_4">16dp</dimen>
+    <dimen name="tw_space_5">20dp</dimen>
+    <dimen name="tw_space_6">24dp</dimen>
+    <dimen name="tw_radius_card">16dp</dimen>
+    <dimen name="tw_radius_strip">12dp</dimen>
+    <dimen name="tw_radius_mode">24dp</dimen>
+    <dimen name="tw_target_min">48dp</dimen>
+    <dimen name="tw_button_primary_height">56dp</dimen>
+    <dimen name="tw_button_sos_height">64dp</dimen>
+    <dimen name="tw_screen_padding">20dp</dimen>
+    <dimen name="tw_card_padding">16dp</dimen>
+</resources>

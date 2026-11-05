@@ -6,6 +6,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+import org.json.JSONObject;
 
 /** Writes local observations to app-private storage as JSON Lines. */
 public final class LocalSampleStore {
@@ -17,9 +18,13 @@ public final class LocalSampleStore {
     }
 
     public synchronized void append(GpsSample sample) throws Exception {
+        appendRecord(sample.toJson());
+    }
+
+    public synchronized void appendRecord(JSONObject record) throws Exception {
         try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
                 new FileOutputStream(file, true), StandardCharsets.UTF_8))) {
-            writer.write(sample.toJson().toString());
+            writer.write(record.toString());
             writer.newLine();
         }
     }

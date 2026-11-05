@@ -1,0 +1,24 @@
+<resources>
+    <color name="tw_bg">#0E1411</color>
+    <color name="tw_surface">#161E19</color>
+    <color name="tw_border">#26332B</color>
+    <color name="tw_text_primary">#EAF0EA</color>
+    <color name="tw_text_secondary">#A3B5A9</color>
+    <color name="tw_hint">#7F9185</color>
+    <color name="tw_primary">#7FD1A0</color>
+    <color name="tw_on_primary">#0B1A12</color>
+    <color name="tw_test_amber">#E8B84A</color>
+    <color name="tw_on_amber">#1A1305</color>
+    <color name="tw_warn_bg">#1D180D</color>
+    <color name="tw_warn_border">#4A3A14</color>
+    <color name="tw_warn_text">#F0D9A0</color>
+    <color name="tw_sos">#B8321A</color>
+    <color name="tw_on_sos">#FFFFFF</color>
+    <color name="tw_error">#F0705A</color>
+    <color name="tw_error_bg">#2A1410</color>
+    <color name="tw_error_border">#6B2A1E</color>
+    <color name="tw_error_text">#F6B8AA</color>
+    <color name="tw_disabled_bg">#26332B</color>
+    <color name="tw_disabled_text">#8A9C90</color>
+    <color name="tw_transparent">#00000000</color>
+</resources>

@@ -55,6 +55,10 @@ public final class InactivityMonitor {
 
     public boolean respondOkay(long nowElapsedMs) {
         if (!prompted || emergencyRaised) return false;
+        if (nowElapsedMs - promptStartedElapsedMs >= RESPONSE_TIMEOUT_MS) {
+            emergencyRaised = true;
+            return false;
+        }
         prompted = false;
         lastMovementElapsedMs = nowElapsedMs;
         promptStartedElapsedMs = 0;
@@ -64,4 +68,9 @@ public final class InactivityMonitor {
     public boolean isPrompted() { return prompted && !emergencyRaised; }
     public boolean isEmergencyRaised() { return emergencyRaised; }
     public float getMovementThresholdMeters() { return movementThresholdMeters; }
+    public long secondsRemaining(long nowElapsedMs) {
+        if (!isPrompted()) return 0L;
+        long remaining = RESPONSE_TIMEOUT_MS - (nowElapsedMs - promptStartedElapsedMs);
+        return Math.max(0L, (remaining + 999L) / 1000L);
+    }
 }

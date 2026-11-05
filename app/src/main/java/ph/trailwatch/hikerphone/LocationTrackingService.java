@@ -86,7 +86,8 @@ public final class LocationTrackingService extends Service {
                 preferences.getBoolean("flag_link_lost", false),
                 preferences.getBoolean("flag_low_battery", false),
                 preferences.getBoolean("flag_emergency", false),
-                preferences.getBoolean("flag_turn_back_received", false));
+                preferences.getBoolean("flag_turn_back_received", false),
+                preferences.getBoolean("test_mode", true));
         safetyState.setListener(this::publishSafetyEvent);
         createNotificationChannels();
         IntentFilter batteryFilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
@@ -123,7 +124,9 @@ public final class LocationTrackingService extends Service {
         this.listener = listener;
         if (listener == null) return;
         listener.onStatus(active ? "GPS tracking active" : "GPS tracking stopped", active);
-        listener.onSafetyEvent("STATE", safetySummary(), false, safetyState.flags());
+        String savedMessage = getSharedPreferences("hiker", MODE_PRIVATE)
+                .getString("last_event_message", safetySummary());
+        listener.onSafetyEvent("STATE", savedMessage, false, safetyState.flags());
         if (inactivityMonitor != null && inactivityMonitor.isPrompted()) {
             listener.onInactivityPrompt(secondsToPromptExpiry());
         }
@@ -139,9 +142,9 @@ public final class LocationTrackingService extends Service {
         this.transport = transport;
         if (transport == null) return;
         transport.connect(design, new Esp32Transport.Listener() {
-            @Override public void onConnected() { publishSafetyEvent("BOARD_CONNECTED", "ESP32 connected", false); }
-            @Override public void onDisconnected() { publishSafetyEvent("BOARD_DISCONNECTED", "ESP32 disconnected", false); }
-            @Override public void onError(String message) { publishSafetyEvent("BOARD_ERROR", message, true); }
+            @Override public void onConnected() { mainHandler.post(() -> publishSafetyEvent("BOARD_CONNECTED", "ESP32 connected", false)); }
+            @Override public void onDisconnected() { mainHandler.post(() -> publishSafetyEvent("BOARD_DISCONNECTED", "ESP32 disconnected", false)); }
+            @Override public void onError(String message) { mainHandler.post(() -> publishSafetyEvent("BOARD_ERROR", message, true)); }
             @Override public void onDownlink(HikerDownlink message) { acceptDownlink(message); }
             @Override public void onReplySlotClosed(boolean replyReceived) { closeReplySlot(replyReceived); }
         });
@@ -151,17 +154,24 @@ public final class LocationTrackingService extends Service {
     public void requestManualSOS() {
         safetyState.requestEmergency("manual_sos");
         persistSafetyFlags();
-        if (isTransportConnected()) transport.sendEmergency(safetyState.flags());
     }
 
     /** Future adapter reports the end of each reply slot; this class defines no reply-window timing. */
     public void closeReplySlot(boolean replyReceived) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> closeReplySlot(replyReceived));
+            return;
+        }
         safetyState.onReplySlotClosed(replyReceived);
         persistSafetyFlags();
     }
 
     /** Future adapter delivers already-decoded logical messages here. */
     public void acceptDownlink(HikerDownlink message) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> acceptDownlink(message));
+            return;
+        }
         if (message == null || nodeId == null || !nodeId.equals(message.nodeId)) return;
         safetyState.onDownlink(message);
         persistSafetyFlags();
@@ -175,6 +185,12 @@ public final class LocationTrackingService extends Service {
     }
 
     public HikerFlags getCurrentFlags() { return safetyState.flags(); }
+
+    public void setTestMode(boolean enabled) {
+        getSharedPreferences("hiker", MODE_PRIVATE).edit().putBoolean("test_mode", enabled).apply();
+        safetyState.setTestMode(enabled);
+        persistSafetyFlags();
+    }
 
     public void stopTracking() {
         removeLocationCallbacks();
@@ -226,22 +242,29 @@ public final class LocationTrackingService extends Service {
         @Override public void onLocationChanged(Location location) {
             Integer sats = satellitesUsed >= 0 ? satellitesUsed : null;
             Integer battery = readBatteryPercent();
-            GpsSample sample = new GpsSample(nodeId, location, sats, battery);
+            GpsSample sample = new GpsSample(nodeId, location, sats, battery, safetyState.flags());
             try {
                 store.append(sample);
                 recordCount++;
-                if (transport != null && transport.isConnected()) {
-                    transport.sendGpsObservation(sample, safetyState.flags());
-                }
-                if (listener != null) listener.onSample(sample, recordCount);
-                getSystemService(NotificationManager.class).notify(
-                        TRACKING_NOTIFICATION_ID,
-                        buildTrackingNotification("GPS fix saved · " + recordCount + " local records"));
-                if (inactivityMonitor != null) handleInactivityTransition(
-                        inactivityMonitor.onLocation(location, SystemClock.elapsedRealtime()));
             } catch (Exception e) {
                 publishSafetyEvent("LOCAL_SAVE_ERROR", "Could not save GPS record", true);
+                return;
             }
+            if (transport != null && transport.isConnected()) {
+                try {
+                    if (!transport.sendGpsObservation(sample, safetyState.flags())) {
+                        publishSafetyEvent("BOARD_SEND_REJECTED", "ESP32 adapter did not accept the GPS observation", true);
+                    }
+                } catch (RuntimeException e) {
+                    publishSafetyEvent("BOARD_ERROR", "Could not submit GPS observation to the ESP32 adapter", true);
+                }
+            }
+            if (listener != null) listener.onSample(sample, recordCount);
+            getSystemService(NotificationManager.class).notify(
+                    TRACKING_NOTIFICATION_ID,
+                    buildTrackingNotification("GPS fix saved · " + recordCount + " local records"));
+            if (inactivityMonitor != null) handleInactivityTransition(
+                    inactivityMonitor.onLocation(location, SystemClock.elapsedRealtime()));
         }
         @Override public void onProviderEnabled(String provider) { reportStatus("GPS provider ready", true); }
         @Override public void onProviderDisabled(String provider) { failTracking("GPS was turned off"); }
@@ -251,6 +274,9 @@ public final class LocationTrackingService extends Service {
     private void handleInactivityTransition(InactivityMonitor.Transition transition) {
         if (transition == InactivityMonitor.Transition.PROMPT) {
             appendEvent("INACTIVITY_PROMPT", "ARE YOU OK? Response needed within 15 seconds", true);
+            AlertFeedback.alert(this, "INACTIVITY_PROMPT");
+            if (listener != null) listener.onSafetyEvent("INACTIVITY_PROMPT",
+                    "ARE YOU OK? Response needed within 15 seconds", true, safetyState.flags());
             if (listener != null) listener.onInactivityPrompt(InactivityMonitor.RESPONSE_TIMEOUT_MS / 1000L);
             showSafetyNotification("ARE YOU OK? Open Trailwatch and answer now · 15 seconds", true);
         } else if (transition == InactivityMonitor.Transition.EMERGENCY) {
@@ -273,13 +299,20 @@ public final class LocationTrackingService extends Service {
         appendEvent(type, message, urgent);
         persistSafetyFlags();
         HikerFlags flags = safetyState.flags();
-        if (listener != null) listener.onSafetyEvent(type, message, urgent, flags);
+        boolean emergencyNotConnected = "SOS_PENDING".equals(type) && !isTransportConnected();
+        String visibleMessage = emergencyNotConnected ? "SOS NOT SENT · no ESP32 connection" : message;
+        getSharedPreferences("hiker", MODE_PRIVATE).edit()
+                .putString("last_event_type", type)
+                .putString("last_event_message", visibleMessage)
+                .apply();
+        if (listener != null) listener.onSafetyEvent(type, visibleMessage, urgent, flags);
         if (urgent || "LOW_BATTERY".equals(type)) {
-            AlertFeedback.alert(this, urgent);
-            showSafetyNotification(message, urgent);
+            AlertFeedback.alert(this, type);
+            showSafetyNotification(visibleMessage, urgent);
         }
         if ("SOS_PENDING".equals(type) && transport != null && transport.isConnected()) {
-            transport.sendEmergency(flags);
+            try { transport.sendEmergency(flags); }
+            catch (RuntimeException e) { publishSafetyEvent("BOARD_ERROR", "Could not submit emergency flag", true); }
         }
     }
 
@@ -292,6 +325,7 @@ public final class LocationTrackingService extends Service {
             event.put("event_type", type);
             event.put("message", message);
             event.put("urgent", urgent);
+            event.put("source", safetyState.flags().testMode ? "TEST" : "REAL");
             store.appendRecord(event);
         } catch (Exception ignored) { }
     }
@@ -303,6 +337,7 @@ public final class LocationTrackingService extends Service {
                 .putBoolean("flag_low_battery", flags.lowBattery)
                 .putBoolean("flag_emergency", flags.emergency)
                 .putBoolean("flag_turn_back_received", flags.turnBackReceived)
+                .putBoolean("test_mode", flags.testMode)
                 .apply();
     }
 
@@ -315,7 +350,7 @@ public final class LocationTrackingService extends Service {
     }
 
     private long secondsToPromptExpiry() {
-        return InactivityMonitor.RESPONSE_TIMEOUT_MS / 1000L;
+        return inactivityMonitor == null ? 0L : inactivityMonitor.secondsRemaining(SystemClock.elapsedRealtime());
     }
 
     private void reportStatus(String message, boolean running) {
@@ -386,6 +421,7 @@ public final class LocationTrackingService extends Service {
                 .setContentIntent(activityPendingIntent())
                 .setAutoCancel(false)
                 .setCategory(urgent ? Notification.CATEGORY_ALARM : Notification.CATEGORY_STATUS);
+        builder.setSound(null).setVibrate(new long[]{0L});
         getSystemService(NotificationManager.class).notify(SAFETY_NOTIFICATION_ID, builder.build());
     }
 
