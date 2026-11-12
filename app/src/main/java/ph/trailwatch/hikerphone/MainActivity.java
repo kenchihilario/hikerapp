@@ -160,8 +160,12 @@ public final class MainActivity extends Activity {
         modeSelector.setPadding(dp(3), dp(3), dp(3), dp(3));
         testModeOption = modeOption("TEST", R.drawable.tw_mode_test, "TEST mode");
         liveModeOption = modeOption("LIVE", R.drawable.tw_mode_live, "LIVE mode");
-        modeSelector.addView(testModeOption, new RadioGroup.LayoutParams(dp(76), dp(48)));
-        modeSelector.addView(liveModeOption, new RadioGroup.LayoutParams(dp(76), dp(48)));
+        testModeOption.setMinWidth(dp(76));
+        testModeOption.setMinHeight(dp(48));
+        liveModeOption.setMinWidth(dp(76));
+        liveModeOption.setMinHeight(dp(48));
+        modeSelector.addView(testModeOption, new RadioGroup.LayoutParams(-2, -2));
+        modeSelector.addView(liveModeOption, new RadioGroup.LayoutParams(-2, -2));
         modeSelector.check(prefs.getBoolean("test_mode", true) ? testModeOption.getId() : liveModeOption.getId());
         modeSelector.setOnCheckedChangeListener((group, checkedId) -> {
             if (changingModeSelection) return;
@@ -333,7 +337,7 @@ public final class MainActivity extends Activity {
         trackButton.setGravity(Gravity.CENTER);
         trackButton.setMinimumHeight(dp(56));
         trackButton.setOnClickListener(v -> onTrackPressed());
-        dock.addView(trackButton, params(-1, dp(56)));
+        dock.addView(trackButton, params(-1, -2));
 
         FrameLayout sosFrame = new FrameLayout(this);
         sosFrame.setBackground(getDrawable(R.drawable.tw_button_sos));
@@ -365,7 +369,7 @@ public final class MainActivity extends Activity {
         sosTouchTarget = sosFrame;
         sosTouchTarget.setOnTouchListener(this::onSosTouch);
         sosTouchTarget.setOnLongClickListener(v -> { if (!sosHoldTriggered) { sosHoldTriggered = true; triggerSOS(); } return true; });
-        LinearLayout.LayoutParams sosLp = params(-1, dp(64));
+        LinearLayout.LayoutParams sosLp = params(-1, -2);
         sosLp.topMargin = dp(8);
         dock.addView(sosFrame, sosLp);
 
