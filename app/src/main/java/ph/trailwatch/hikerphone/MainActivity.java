@@ -518,7 +518,7 @@ public final class MainActivity extends Activity {
                     Uri.parse("package:" + getPackageName()));
             startActivity(intent);
         });
-        LinearLayout.LayoutParams buttonLp = params(-1, dp(48));
+        LinearLayout.LayoutParams buttonLp = params(-1, -2);
         buttonLp.topMargin = dp(8);
         card.addView(settings, buttonLp);
         return card;
@@ -541,14 +541,14 @@ public final class MainActivity extends Activity {
         simulatorButton.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_simulator, 0, 0, 0);
         simulatorButton.setCompoundDrawablePadding(dp(8));
         simulatorButton.setOnClickListener(v -> openSimulatorPanel());
-        LinearLayout.LayoutParams simLp = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        LinearLayout.LayoutParams simLp = new LinearLayout.LayoutParams(0, -2, 1f);
         simLp.rightMargin = dp(6);
         row.addView(simulatorButton, simLp);
         exportButton = button("Export log", R.drawable.tw_button_ghost);
         exportButton.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_export, 0, 0, 0);
         exportButton.setCompoundDrawablePadding(dp(8));
         exportButton.setOnClickListener(v -> exportLog());
-        LinearLayout.LayoutParams exportLp = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        LinearLayout.LayoutParams exportLp = new LinearLayout.LayoutParams(0, -2, 1f);
         exportLp.leftMargin = dp(6);
         row.addView(exportButton, exportLp);
         return row;
@@ -994,7 +994,7 @@ public final class MainActivity extends Activity {
     private void addSimulationButton(LinearLayout parent, String title, Runnable action) {
         Button button = button(title, R.drawable.tw_button_ghost);
         button.setOnClickListener(v -> action.run());
-        LinearLayout.LayoutParams lp = params(-1, dp(48));
+        LinearLayout.LayoutParams lp = params(-1, -2);
         lp.topMargin = dp(4);
         parent.addView(button, lp);
     }
