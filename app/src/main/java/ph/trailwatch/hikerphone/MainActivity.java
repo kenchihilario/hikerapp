@@ -89,6 +89,7 @@ public final class MainActivity extends Activity {
     private HikerSafetyState simulationState;
     private boolean bound;
     private boolean requestedStart;
+    private boolean notificationNoticeShown;
     private boolean sosHoldTriggered;
     private boolean suppressDesignCallback;
     private boolean changingModeSelection;
@@ -752,6 +753,7 @@ public final class MainActivity extends Activity {
         }
         locationErrorCard.setVisibility(View.GONE);
         sosErrorCard.setVisibility(View.GONE);
+        warnIfNotificationsOff();
         startTrackingService(nodeId);
     }
 
@@ -1170,6 +1172,21 @@ public final class MainActivity extends Activity {
         if (granted && requestedStart) startTrackingService(prefs.getString("node_id", ""));
         else if (requestedStart) showLocationError("Location permission denied");
         requestedStart = false;
+        warnIfNotificationsOff();
+    }
+
+    private void warnIfNotificationsOff() {
+        if (Build.VERSION.SDK_INT < 33
+                || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                || notificationNoticeShown) return;
+        notificationNoticeShown = true;
+        new AlertDialog.Builder(this)
+                .setTitle("Notifications are off")
+                .setMessage("GPS tracking can still run, but the ARE YOU OK? prompt and safety alerts may not show when the app is in the background. Turn notifications on in Settings.")
+                .setPositiveButton("Open settings", (dialog, which) -> startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())))
+                .setNegativeButton("Continue", null)
+                .show();
     }
 
     @Override protected void onStart() {
@@ -1194,6 +1211,7 @@ public final class MainActivity extends Activity {
             unbindService(connection);
             bound = false;
         }
+        service = null;
         super.onStop();
     }
 
