@@ -135,16 +135,19 @@ public final class LocationTrackingService extends Service {
     public boolean isActive() { return active; }
     public long getRecordCount() { return recordCount; }
     public boolean isTransportConnected() { return transport != null && transport.isConnected(); }
+    public boolean isTransportSimulated() { return transport instanceof FakeEsp32Transport; }
+    public FakeEsp32Transport getSimulatedTransport() { return transport instanceof FakeEsp32Transport ? (FakeEsp32Transport) transport : null; }
 
     /** Injection point for the future approved BLE or USB-OTG adapter. */
     public void installTransport(Esp32Transport transport, PhoneLinkDesign design) {
         if (this.transport != null) this.transport.disconnect();
         this.transport = transport;
         if (transport == null) return;
+        final boolean simulated = transport instanceof FakeEsp32Transport;
         transport.connect(design, new Esp32Transport.Listener() {
-            @Override public void onConnected() { mainHandler.post(() -> publishSafetyEvent("BOARD_CONNECTED", "ESP32 connected", false)); }
-            @Override public void onDisconnected() { mainHandler.post(() -> publishSafetyEvent("BOARD_DISCONNECTED", "ESP32 disconnected", false)); }
-            @Override public void onError(String message) { mainHandler.post(() -> publishSafetyEvent("BOARD_ERROR", message, true)); }
+            @Override public void onConnected() { mainHandler.post(() -> publishSafetyEvent("BOARD_CONNECTED", simulated ? "SIMULATED link · no real ESP32" : "ESP32 connected", false)); }
+            @Override public void onDisconnected() { mainHandler.post(() -> publishSafetyEvent("BOARD_DISCONNECTED", simulated ? "SIMULATED link disconnected · no real ESP32" : "ESP32 disconnected", false)); }
+            @Override public void onError(String message) { mainHandler.post(() -> publishSafetyEvent("BOARD_ERROR", simulated ? "SIMULATED link · no real ESP32 · " + message : message, true)); }
             @Override public void onDownlink(HikerDownlink message) { acceptDownlink(message); }
             @Override public void onReplySlotClosed(boolean replyReceived) { closeReplySlot(replyReceived); }
         });
@@ -190,9 +193,11 @@ public final class LocationTrackingService extends Service {
         getSharedPreferences("hiker", MODE_PRIVATE).edit().putBoolean("test_mode", enabled).apply();
         safetyState.setTestMode(enabled);
         persistSafetyFlags();
+        if (!enabled && transport instanceof FakeEsp32Transport) installTransport(null, PhoneLinkDesign.BLE);
     }
 
     public void stopTracking() {
+        if (transport instanceof FakeEsp32Transport) installTransport(null, PhoneLinkDesign.BLE);
         removeLocationCallbacks();
         mainHandler.removeCallbacks(inactivityTicker);
         active = false;
@@ -300,7 +305,8 @@ public final class LocationTrackingService extends Service {
         persistSafetyFlags();
         HikerFlags flags = safetyState.flags();
         boolean emergencyNotConnected = "SOS_PENDING".equals(type) && !isTransportConnected();
-        String visibleMessage = emergencyNotConnected ? "SOS NOT SENT · no ESP32 connection" : message;
+        boolean emergencyOnSimulated = "SOS_PENDING".equals(type) && isTransportConnected() && isTransportSimulated();
+        String visibleMessage = emergencyNotConnected ? "SOS NOT SENT · no ESP32 connection" : emergencyOnSimulated ? "SOS passed to SIMULATED link · NOT sent to a real board" : message;
         getSharedPreferences("hiker", MODE_PRIVATE).edit()
                 .putString("last_event_type", type)
                 .putString("last_event_message", visibleMessage)

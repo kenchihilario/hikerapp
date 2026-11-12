@@ -85,6 +85,7 @@ public final class MainActivity extends Activity {
     private RadioButton liveModeOption;
     private LinearLayout simulationCard;
     private LocationTrackingService service;
+    private FakeEsp32Transport fakeEsp32Transport;
     private HikerSafetyState simulationState;
     private boolean bound;
     private boolean requestedStart;
@@ -587,6 +588,12 @@ public final class MainActivity extends Activity {
         addSimulationButton(panel, "Simulate battery below 20%", () -> simulationState.onBatteryPercent(19));
         addSimulationButton(panel, "Simulate ARE YOU OK? prompt", this::simulateInactivityPrompt);
         addSimulationButton(panel, "Reset simulated alerts", this::resetSimulationState);
+        panel.addView(text("Simulated link · runs the real service path, no real board", 14, MUTED, false));
+        addSimulationButton(panel, "Connect simulated link", this::connectSimulatedLink);
+        addSimulationButton(panel, "Disconnect simulated link", this::disconnectSimulatedLink);
+        addSimulationButton(panel, "Send simulated ACK", this::sendSimulatedAck);
+        addSimulationButton(panel, "Miss reply slot", () -> closeSimulatedReplySlot(false));
+        addSimulationButton(panel, "Receive reply slot", () -> closeSimulatedReplySlot(true));
         return panel;
     }
 
@@ -633,10 +640,13 @@ public final class MainActivity extends Activity {
         if (connectionStripText == null) return;
         boolean testMode = prefs.getBoolean("test_mode", true);
         boolean connected = service != null && service.isTransportConnected();
+        boolean simulated = connected && service.isTransportSimulated();
         if (!connected) {
             connectionStripText.setText(testMode
                     ? "Radio link not set up. GPS/SOS stay on phone."
                     : "LIVE mode · local GPS only. ESP32 not connected. Nothing sent to Base Camp.");
+        } else if (simulated) {
+            connectionStripText.setText("SIMULATED link · no real ESP32. Nothing sent to Base Camp.");
         } else {
             connectionStripText.setText(testMode
                     ? "ESP32 link connected · TEST records remain local until firmware sends them."
@@ -701,7 +711,7 @@ public final class MainActivity extends Activity {
         prefs.edit().putString("node_id", nodeId).putBoolean("flag_emergency", true).apply();
         if (service != null) {
             service.requestManualSOS();
-            if (!service.isTransportConnected()) sosErrorCard.setVisibility(View.VISIBLE);
+            if (!service.isTransportConnected() || service.isTransportSimulated()) sosErrorCard.setVisibility(View.VISIBLE);
         } else {
             appendLocalEvent("SOS_PENDING", "Manual SOS requested · not sent to an ESP32", true);
             AlertFeedback.alert(this, "SOS_PENDING");
@@ -794,6 +804,7 @@ public final class MainActivity extends Activity {
             service.setListener(new LocationTrackingService.Listener() {
                 @Override public void onSample(GpsSample sample, long records) { showSample(sample, records); }
                 @Override public void onStatus(String message, boolean active) {
+                    if (!active && service.isTransportSimulated()) service.installTransport(null, PhoneLinkDesign.BLE);
                     if (active) {
                         showLoadingState();
                         locationErrorCard.setVisibility(View.GONE);
@@ -820,7 +831,7 @@ public final class MainActivity extends Activity {
                     safetyView.setText(message);
                     safetyView.setVisibility(View.VISIBLE);
                     safetyView.setTextColor(urgent ? ERROR : flags.lowBattery ? AMBER : GREEN);
-                    if ("SOS_PENDING".equals(type) && !service.isTransportConnected()) sosErrorCard.setVisibility(View.VISIBLE);
+                    if ("SOS_PENDING".equals(type) && (!service.isTransportConnected() || service.isTransportSimulated())) sosErrorCard.setVisibility(View.VISIBLE);
                     updateHardwareStatus();
                     if ("OFF_TRAIL".equals(type) || "STORM_TURN_BACK".equals(type) || "SOS_RECEIVED".equals(type)) showSafetyDialog(message);
                 }
@@ -830,7 +841,11 @@ public final class MainActivity extends Activity {
             updateTrackButton(service.isActive());
             updateHardwareStatus();
         }
-        @Override public void onServiceDisconnected(ComponentName name) { service = null; updateHardwareStatus(); }
+        @Override public void onServiceDisconnected(ComponentName name) {
+            if (service != null && service.isTransportSimulated()) service.installTransport(null, PhoneLinkDesign.BLE);
+            service = null;
+            updateHardwareStatus();
+        }
     };
 
     private void showSample(GpsSample s, long records) {
@@ -912,7 +927,7 @@ public final class MainActivity extends Activity {
         if (prefs.getBoolean("flag_emergency", false)) {
             safetyView.setText("SOS PENDING · delivery not confirmed");
             safetyView.setVisibility(View.VISIBLE);
-            if (service == null || !service.isTransportConnected()) sosErrorCard.setVisibility(View.VISIBLE);
+            if (service == null || !service.isTransportConnected() || service.isTransportSimulated()) sosErrorCard.setVisibility(View.VISIBLE);
         }
         else if (prefs.getBoolean("flag_link_lost", false)) { safetyView.setText("LINK LOST"); safetyView.setVisibility(View.VISIBLE); }
         else if (prefs.getBoolean("flag_low_battery", false)) { safetyView.setText("Phone battery below 20%"); safetyView.setVisibility(View.VISIBLE); }
@@ -1009,6 +1024,40 @@ public final class MainActivity extends Activity {
         if (safetyView != null) {
             safetyView.setVisibility(View.GONE);
         }
+    }
+
+    private void connectSimulatedLink() {
+        if (!prefs.getBoolean("test_mode", true)) return;
+        if (service == null || !service.isActive()) {
+            Toast.makeText(this, "Start GPS tracking first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (fakeEsp32Transport == null) fakeEsp32Transport = new FakeEsp32Transport();
+        service.installTransport(fakeEsp32Transport, PhoneLinkDesign.BLE);
+    }
+
+    private void disconnectSimulatedLink() {
+        if (service != null && service.isTransportSimulated()) service.installTransport(null, PhoneLinkDesign.BLE);
+    }
+
+    private void sendSimulatedAck() {
+        if (!prefs.getBoolean("test_mode", true)) return;
+        FakeEsp32Transport fake = service == null ? null : service.getSimulatedTransport();
+        if (fake == null) {
+            Toast.makeText(this, "Connect the simulated link first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        fake.fakeDownlink(new HikerDownlink(nodeField.getText().toString().trim(), null, null, HikerDownlink.Type.ACKNOWLEDGEMENT));
+    }
+
+    private void closeSimulatedReplySlot(boolean received) {
+        if (!prefs.getBoolean("test_mode", true)) return;
+        FakeEsp32Transport fake = service == null ? null : service.getSimulatedTransport();
+        if (fake == null) {
+            Toast.makeText(this, "Connect the simulated link first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        fake.closeReplySlot(received);
     }
 
     private void simulateDownlink(HikerDownlink.Type type) {
